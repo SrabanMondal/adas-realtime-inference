@@ -1,4 +1,4 @@
-from src.adas.checkpoint import CheckpointManager
+from src.adas.gps.checkpoint import CheckpointManager
 
 # ---------------------------------------
 # Route: east then north (L-shape)

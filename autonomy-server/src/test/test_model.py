@@ -3,7 +3,7 @@ import numpy as np
 from tqdm import tqdm
 
 # import your engine
-from src.engine import InferenceEngine
+from src.inference.openvino_engine import InferenceEngine
 
 MODEL_PATH = "src/data/yolopv2fp16.xml"
 DEVICE = "GPU"   # ya "CPU"
