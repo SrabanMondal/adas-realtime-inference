@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+cert.pem
+key.pem
+src/data/*
+model_cache/
+kernel.errors.txt
