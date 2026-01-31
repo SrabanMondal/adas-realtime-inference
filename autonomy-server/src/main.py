@@ -4,12 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 
 # Internal Imports
-from src.models import (
+from src.api.models import (
     SensorMessage, AutonomyMessage, AutonomyState, Control,
     encode_msgpack, decode_msgpack, decode_jpeg_bytes
 )
-from src.engine import InferenceEngine
-from src.utils.image import letterbox_480_to_640, crop_mask_640_to_480
+from src.inference.openvino_engine import InferenceEngine
+from src.utils.image import letterbox, unletterbox
 from src.adas.perception import perceive_lanes
 from src.adas.segmentation import clean_road_mask
 from src.adas.checkpoint import CheckpointManager

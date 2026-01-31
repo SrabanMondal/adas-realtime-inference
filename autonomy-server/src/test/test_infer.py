@@ -4,17 +4,17 @@ import time
 import argparse
 from tqdm import tqdm
 
-from src.engine import InferenceEngine
+from src.inference.openvino_engine import InferenceEngine
 from src.utils.image import letterbox, unletterbox, scale_boxes
-from src.adas.segmentation import clean_road_mask
-from src.adas.mpcv2 import CenterlineMPC
-from src.adas.road_v2 import RoadPerception
-from src.object_engine import ObjectInferenceEngine, ObjectPerception
+from src.adas.perception.road.segmentation import clean_road_mask
+from src.adas.control.mpcv2 import CenterlineMPC
+from src.adas.perception.road.road_v2 import RoadPerception
+from src.inference.object_engine import ObjectInferenceEngine, ObjectPerception
 
 INPUT_VIDEO = "src/data/input30.mp4"
 OUTPUT_VIDEO = "src/data/letterbox_test_6.avi"
-YOLOP_MODEL_PATH = "src/data/yolop/yolopv2fp16.xml"
-YOLO_MODEL_PATH = "src/data/yolo/yolo26n.xml"
+YOLOP_MODEL_PATH = "src/weights/yolop/yolopv2fp16.xml"
+YOLO_MODEL_PATH = "src/weights/yolo/yolo26n.xml"
 DEVICE = "GPU"
 
 def color_for(src):
