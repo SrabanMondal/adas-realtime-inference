@@ -1,59 +1,68 @@
-from typing import List, Literal, Optional, Type, TypeVar, Tuple
-from pydantic import BaseModel
-import msgpack
-import numpy as np
-import cv2
+"""
+Pydantic Schemas for WebSocket API Communication
 
-# ---------- Models ----------
+Client -> Server: SensorMessage (image + GPS)
+Server -> Client: AutonomyMessage (steering + trajectory)
+"""
+from typing import List, Literal, Optional, Tuple
+from pydantic import BaseModel
+
+# Re-export codec utilities for backward compatibility
+from src.utils.codec import decode_msgpack, encode_msgpack, decode_jpeg_bytes
+
+# =============================================================================
+# Type Aliases
+# =============================================================================
 Point = List[int]  # [x, y]
 
+
+# =============================================================================
+# Client -> Server Messages
+# =============================================================================
 class GpsData(BaseModel):
+    """GPS coordinates from device."""
     lat: float
     lon: float
     accuracy: Optional[float] = None
 
+
 class SensorPacket(BaseModel):
+    """Sensor data packet containing image and GPS."""
     timestamp: float
-    image: bytes          # RAW JPEG bytes
+    image: bytes  # RAW JPEG bytes
     gps: GpsData
 
+
 class SensorMessage(BaseModel):
+    """Message wrapper for sensor data."""
     type: Literal["sensor"]
     payload: SensorPacket
 
+
 ClientToServerMessage = SensorMessage
 
+
+# =============================================================================
+# Server -> Client Messages
+# =============================================================================
 class Control(BaseModel):
+    """Steering control output."""
     steeringAngle: float
     confidence: float
 
+
 class AutonomyState(BaseModel):
+    """Complete autonomy state sent to client."""
     laneLines: List[List[Point]]
-    trajectory: List[Tuple[int,int]]
+    trajectory: List[Tuple[int, int]]
     control: Control
-    status: Literal["NORMAL", "WARNING", "ERROR","FINISHED"]
+    status: Literal["NORMAL", "WARNING", "ERROR", "FINISHED"]
+
 
 class AutonomyMessage(BaseModel):
+    """Message wrapper for autonomy state."""
     type: Literal["autonomy"]
     payload: AutonomyState
 
+
 ServerToClientMessage = AutonomyMessage
-
-# ---------- Codec Utilities ----------
-T = TypeVar("T", bound=BaseModel)
-
-def decode_msgpack(data: bytes, model: Type[T]) -> T:
-    raw = msgpack.unpackb(data, raw=False)
-    return model.model_validate(raw)
-
-def encode_msgpack(model: BaseModel) -> bytes:
-    data = msgpack.packb(model.model_dump(), use_bin_type=True)
-    assert isinstance(data, (bytes, bytearray))
-    return bytes(data)
-
-def decode_jpeg_bytes(data: bytes) -> np.ndarray:
-    np_arr = np.frombuffer(data, dtype=np.uint8)
-    img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-    if img is None:
-        raise ValueError("Invalid JPEG data")
-    return img
