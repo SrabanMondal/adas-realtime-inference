@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
-
-def letterbox(img, size=640) -> np.ndarray:
+from typing import Tuple
+def letterbox(img, size=320) -> np.ndarray:
     h, w = img.shape[:2]
     scale = size / max(h, w)
     nh, nw = int(h * scale), int(w * scale)
@@ -19,33 +19,40 @@ def letterbox(img, size=640) -> np.ndarray:
     )
     return boxed
 
-def unletterbox(mask_640, orig_shape, size=640) -> np.ndarray:
-    """
-    mask_640: model output (H=640, W=640) single-channel
-    orig_shape: (orig_h, orig_w)
-    """
+def unletterbox(mask_320, orig_shape, size=320) -> np.ndarray:
     orig_h, orig_w = orig_shape
 
-    # Recompute the same geometry
+    # 1. Re-calculate scale exactly as done in letterbox
     scale = size / max(orig_h, orig_w)
-    nh, nw = int(orig_h * scale), int(orig_w * scale)
+    
+    # Use round() to ensure we match the integer dimensions created by cv2.resize
+    nw, nh = int(round(orig_w * scale)), int(round(orig_h * scale))
 
+    # 2. Re-calculate padding
     top = (size - nh) // 2
     left = (size - nw) // 2
+    
+    # 3. Guard against empty crops (The fix for your error)
+    # Ensure indices don't go out of bounds or create empty slices
+    bottom = min(top + nh, size)
+    right = min(left + nw, size)
+    
+    unpadded = mask_320[top:bottom, left:right]
 
-    # 1. Crop padding away
-    unpadded = mask_640[top:top+nh, left:left+nw]
+    if unpadded.size == 0:
+        print(f"[WARN] Empty crop: top={top}, bottom={bottom}, left={left}, right={right}")
+        return np.zeros((orig_h, orig_w), dtype=np.uint8)
 
-    # 2. Resize back to original resolution
+    # 4. Resize back
     restored = cv2.resize(unpadded, (orig_w, orig_h),
-                           interpolation=cv2.INTER_NEAREST)
+                          interpolation=cv2.INTER_NEAREST)
 
     return restored
 
 def scale_boxes(
     boxes: np.ndarray, 
-    orig_shape: tuple[int, int], 
-    size: int = 640
+    orig_shape: Tuple[int, int], 
+    size: int = 320
 ) -> np.ndarray:
     """
     Rescale YOLO boxes (x1, y1, x2, y2, conf, cls) from 640x640 letterbox 

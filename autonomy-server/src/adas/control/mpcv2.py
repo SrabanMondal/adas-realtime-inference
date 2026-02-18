@@ -8,7 +8,7 @@ Point = Tuple[int, int]
 class CenterlineMPC:
     def __init__(self):
         # --- Config ---
-        self.num_candidates = 9
+        self.num_candidates = 12
         self.max_steering = math.radians(28)
 
         self.lookahead_steps = 40

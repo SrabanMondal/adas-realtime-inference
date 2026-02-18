@@ -12,10 +12,11 @@ from src.adas.perception.road.road_v2 import RoadPerception
 from src.inference.object_engine import ObjectInferenceEngine, ObjectPerception
 
 INPUT_VIDEO = "src/data/input30.mp4"
-OUTPUT_VIDEO = "src/data/letterbox_test_6.avi"
-YOLOP_MODEL_PATH = "src/weights/yolop/yolopv2fp16.xml"
+OUTPUT_VIDEO = "src/data/letterbox_test_7.avi"
+YOLOP_MODEL_PATH = "src/weights/yolop/yolopv2_fast_fp16.xml"
 YOLO_MODEL_PATH = "src/weights/yolo/yolo26n.xml"
 DEVICE = "GPU"
+IMG_SIZE = 320
 
 def color_for(src):
     if src == "LANE_DETECTED": return (255,255,0)
@@ -112,26 +113,33 @@ def main(demo: bool, morph: bool):
 
         t1 = time.perf_counter()
 
-        outputs = engine.infer(boxed)
+        drive_logits = engine.infer(boxed)
         object_outputs = object_engine.get_perception(boxed)
 
         t2 = time.perf_counter()
 
-        drive_logits = outputs["drive"][0]
-        lane_logits = outputs["lane"][0]
+        # drive_logits = outputs["drive"][0]
+        # lane_logits = outputs["lane"][0]
 
         # fast binary masks in model space
+        # if drive_logits.ndim == 4: # [1, 2, 320, 320]
+        #     # Use argmax to get the best class per pixel
+        #     drive_mask_320 = np.argmax(drive_logits[0], axis=0).astype(np.uint8)
+        # elif drive_logits.ndim == 3: # [1, 320, 320]
+        #     drive_mask_320 = (drive_logits[0] > 0).astype(np.uint8)
+        # else:
+        #     drive_mask_320 = (drive_logits > 0).astype(np.uint8)
         if drive_logits.shape[0] == 1:
-            drive_mask_640 = (drive_logits[0] > 0).astype(np.uint8)
+            drive_mask_320 = (drive_logits[0] > 0).astype(np.uint8)
         else:
-            drive_mask_640 = (drive_logits[1] > drive_logits[0]).astype(np.uint8)
+            drive_mask_320 = (drive_logits[1] > drive_logits[0]).astype(np.uint8)
 
-        if lane_logits.shape[0] == 1:
-            lane_mask_640 = (lane_logits[0] > 0).astype(np.uint8)
-        else:
-            lane_mask_640 = (lane_logits[1] > lane_logits[0]).astype(np.uint8)
+        # if lane_logits.shape[0] == 1:
+        #     lane_mask_320 = (lane_logits[0] > 0).astype(np.uint8)
+        # else:
+        #     lane_mask_320 = (lane_logits[1] > lane_logits[0]).astype(np.uint8)
         
-        drive_mask = unletterbox(drive_mask_640, frame.shape[:2])
+        drive_mask = unletterbox(drive_mask_320, frame.shape[:2])
         if morph:
             drive_mask = clean_road_mask(drive_mask)
         out = road_engine.process(drive_mask)
@@ -145,9 +153,9 @@ def main(demo: bool, morph: bool):
             )
 
         if demo and overlay is not None:
-            lane_mask_orig  = unletterbox(lane_mask_640,  frame.shape[:2])
+            # lane_mask_orig  = unletterbox(lane_mask_640,  frame.shape[:2])
             overlay.fill(0)
-            overlay[lane_mask_orig == 1]  = (0, 0, 255)
+            # overlay[lane_mask_orig == 1]  = (0, 0, 255)
                 
             overlay[drive_mask == 1] = (255, 0, 0)
             center_pts = out["center_points"]           

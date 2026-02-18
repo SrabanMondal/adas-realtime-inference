@@ -1,55 +1,62 @@
 import openvino as ov
 from openvino.preprocess import PrePostProcessor, ColorFormat
-from openvino import Type
+from openvino import Type, Layout
 import numpy as np
-from typing import Dict
+import os
 
 class InferenceEngine:
     def __init__(self, model_path: str, device: str = "GPU"):
         self.core = ov.Core()
+        
+        # GPU Cache to prevent the 10-second "startup lag"
+        if not os.path.exists('model_cache'): os.makedirs('model_cache', exist_ok=True)
         self.core.set_property({'CACHE_DIR': './model_cache'})
         
-        print(f"[INFO] Loading {model_path} to {device}...")
+        print(f"[INFO] Loading Drive-Only YOLOPv2: {model_path} to {device}...")
         raw_model = self.core.read_model(model_path)
         
         # --- PrePostProcessor Optimization ---
-        # Bakes normalization and layout conversion into the graph
         ppp = PrePostProcessor(raw_model)
         
-        # Input: (1, 640, 640, 3) U8 BGR
+        # 1. Input: (1, 320, 320, 3) UINT8 BGR
         ppp.input().tensor() \
             .set_element_type(Type.u8) \
-            .set_layout(ov.Layout('NHWC')) \
+            .set_layout(Layout('NHWC')) \
             .set_color_format(ColorFormat.BGR)
         
-        # Process: U8->F32, BGR->RGB, Scale 0-1
+        # 2. Preprocessing: Color swap + Normalize (0-1)
+        # Doing this here is much faster than doing it in your Python loop
         ppp.input().preprocess() \
-            .convert_element_type(Type.f16) \
+            .convert_element_type() \
             .convert_color(ColorFormat.RGB) \
-            .scale([255., 255., 255.])
+            .scale(255.0)
         
-        # Model expects: NCHW
-        ppp.input().model().set_layout(ov.Layout('NCHW'))
+        # 3. Model Expects: NCHW
+        ppp.input().model().set_layout(Layout('NCHW'))
         
+        # Build and Compile
         self.compiled_model = self.core.compile_model(
             ppp.build(), 
             device, 
             {"PERFORMANCE_HINT": "LATENCY"}
         )
-        self.infer_request = self.compiled_model.create_infer_request()
-        print("[INFO] Engine Ready.")
 
-    def infer(self, img_640: np.ndarray) -> Dict[str, np.ndarray]:
+        # Get the specific output port for 'drive_area'
+        # Using any_name ensures we match the "drive_area" name from your export script
+        self.output_layer = self.compiled_model.output("drive_area")
+        
+        print(f"[INFO] Engine Ready. Output layer: {self.output_layer.any_name}")
+
+    def infer(self, img_320: np.ndarray) -> np.ndarray:
         """
-        Args:
-            img_640: (640, 640, 3) BGR image
-        Returns:
-            Dict containing raw logits/masks from model
+        Args: img_320 (320, 320, 3) BGR image
+        Returns: Raw drive mask [1, 2, 320, 320] or [1, 1, 320, 320]
         """
-        input_tensor = np.expand_dims(img_640, 0)
+        # NHWC expansion
+        input_tensor = np.expand_dims(img_320, 0)
+        
+        # Run inference
         results = self.compiled_model(input_tensor)
         
-        return {
-            "drive": results["drive_area_seg"],
-            "lane": results["lane_line_seg"]
-        }
+        # Return only the drive mask
+        return results[self.output_layer][0]
