@@ -1,8 +1,8 @@
 # Autonomy Server - ADAS Pipeline
 
 **Real-time monocular ADAS backend** for lane keeping and collision avoidance.  
-**~7 FPS** inference on Intel Iris Xe GPU using OpenVINO.
-
+**~30 FPS** inference on Intel Iris Xe GPU using OpenVINO fp16.
+**~13 FPS** inference on Jetson Nano 128 core maxwell 4 GB shared RAM using Tensorrt fp32.
 ---
 
 ## Pipeline Architecture
