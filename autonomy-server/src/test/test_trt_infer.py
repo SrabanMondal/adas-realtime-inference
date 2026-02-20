@@ -4,18 +4,18 @@ import time
 import argparse
 from tqdm import tqdm
 
-from src.inference.openvino_engine import InferenceEngine
+from src.inference.tensorrt_engine import InferenceEngine
 from src.utils.image import letterbox, unletterbox, scale_boxes
 from src.adas.perception.road.segmentation import clean_road_mask
 from src.adas.control.mpcv2 import CenterlineMPC
 from src.adas.perception.road.road_v2 import RoadPerception
-from src.inference.object_engine import ObjectInferenceEngine
+from src.inference.trt_object_engine import TRTObjectInferenceEngine
 from src.adas.perception.object.object_brake import ObjectPerception
 
 INPUT_VIDEO = "src/data/input30.mp4"
 OUTPUT_VIDEO = "src/data/output30.mp4"
-YOLOP_MODEL_PATH = "src/weights/yolop/ov/yolopv2_fast_fp16.xml"
-YOLO_MODEL_PATH = "src/weights/yolo/ov/yolo26n.xml"
+YOLOP_MODEL_PATH = "src/weights/yolop/yolop.engine"
+YOLO_MODEL_PATH = "src/weights/yolo/yolo.engine"
 DEVICE = "GPU"
 IMG_SIZE = 320
 
@@ -88,13 +88,13 @@ def main(demo: bool, morph: bool):
     overlay = None
 
     if demo:
-        fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(OUTPUT_VIDEO, fourcc, fps, (w, h))
         overlay = np.zeros((h, w, 3), dtype=np.uint8)
 
-    engine = InferenceEngine(YOLOP_MODEL_PATH, device=DEVICE)
+    engine = InferenceEngine(YOLOP_MODEL_PATH)
     road_engine = RoadPerception()
-    object_engine = ObjectInferenceEngine(YOLO_MODEL_PATH, device="CPU")
+    object_engine = TRTObjectInferenceEngine(YOLO_MODEL_PATH)
     object_perception = ObjectPerception(w, h)
     mpc = CenterlineMPC()
 
@@ -115,7 +115,7 @@ def main(demo: bool, morph: bool):
         t1 = time.perf_counter()
 
         drive_logits = engine.infer(boxed)
-        object_outputs = object_engine.get_perception(boxed)
+        object_outputs = object_engine.infer(boxed)
 
         t2 = time.perf_counter()
 

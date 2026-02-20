@@ -50,7 +50,7 @@ class InferenceEngine:
     def infer(self, img_320: np.ndarray) -> np.ndarray:
         """
         Args: img_320 (320, 320, 3) BGR image
-        Returns: Raw drive mask [1, 2, 320, 320] or [1, 1, 320, 320]
+        Returns: Raw drive mask [2, 320, 320] or [1, 320, 320]
         """
         # NHWC expansion
         input_tensor = np.expand_dims(img_320, 0)

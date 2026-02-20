@@ -1,14 +1,17 @@
 import tensorrt as trt
 import pycuda.driver as cuda
-import pycuda.autoinit  # noqa
+import pycuda.autoinit
 import numpy as np
 import cv2
-from typing import Dict
 
-WANTED_OUTPUTS = {"lane_line_seg", "drive_area_seg"}
-
-class TRTInferenceEngine:
+class InferenceEngine:
     def __init__(self, engine_path: str):
+        """
+        TensorRT equivalent of the OpenVINO InferenceEngine.
+        Accepts (320, 320, 3) BGR uint8 input.
+        Returns output mask [C, 320, 320] -- no batch dim.
+        """
+
         self.logger = trt.Logger(trt.Logger.WARNING)
         self.runtime = trt.Runtime(self.logger)
 
@@ -19,74 +22,79 @@ class TRTInferenceEngine:
         self.context = self.engine.create_execution_context()
         self.stream = cuda.Stream()
 
-        self._allocate_buffers()
-        print("[INFO] TensorRT Engine Ready.")
-
-    def _allocate_buffers(self):
-        self.inputs = []
-        self.outputs = []
+        # Allocate buffers
         self.bindings = []
+        self.host_inputs = []
+        self.cuda_inputs = []
+        self.host_outputs = []
+        self.cuda_outputs = []
 
-        for binding in self.engine:
-            shape = self.engine.get_binding_shape(binding)
-            dtype = trt.nptype(self.engine.get_binding_dtype(binding))
+        for i in range(self.engine.num_bindings):
+            dtype = trt.nptype(self.engine.get_binding_dtype(i))
+            shape = self.engine.get_binding_shape(i)
             size = trt.volume(shape)
 
             host_mem = cuda.pagelocked_empty(size, dtype)
-            device_mem = cuda.mem_alloc(host_mem.nbytes)
+            cuda_mem = cuda.mem_alloc(host_mem.nbytes)
 
-            self.bindings.append(int(device_mem))
+            self.bindings.append(int(cuda_mem))
 
-            if self.engine.binding_is_input(binding):
-                self.input_shape = shape
-                self.inputs.append((host_mem, device_mem))
+            if self.engine.binding_is_input(i):
+                self.host_inputs.append(host_mem)
+                self.cuda_inputs.append(cuda_mem)
+                self.input_shape = shape  # (1,3,320,320)
             else:
-                if binding in WANTED_OUTPUTS:
-                    self.outputs.append((binding, host_mem, device_mem, shape))
+                self.host_outputs.append(host_mem)
+                self.cuda_outputs.append(cuda_mem)
+                self.output_shape = shape  # (1,C,320,320)
 
+        print(f"[INFO] TRT Ready. Output shape = {self.output_shape}")
 
-    def _preprocess(self, img: np.ndarray) -> np.ndarray:
+    # -------------------------------------------------------
+    # Preprocess (must match OpenVINO PrePostProcessor exactly)
+    # -------------------------------------------------------
+    def _preprocess(self, img_bgr: np.ndarray) -> np.ndarray:
         """
-        Input:
-            img: (640, 640, 3) BGR uint8
-        Output:
-            (1, 3, 640, 640) float16 RGB
+        Input:  (320, 320, 3) BGR uint8
+        Output: (1, 3, 320, 320) float32 normalized RGB
         """
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = img.astype(np.float16) / 255.0
-        img = np.transpose(img, (2, 0, 1))  # HWC → CHW
-        img = np.expand_dims(img, axis=0)
-        return img
 
-    def infer(self, img_640: np.ndarray) -> Dict[str, np.ndarray]:
-        input_data = self._preprocess(img_640)
+        # BGR -> RGB
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
-        # Copy input to host buffer
-        np.copyto(self.inputs[0][0], input_data.ravel())
+        # Normalize
+        img_rgb = img_rgb.astype(np.float32) / 255.0
 
-        # H2D
-        cuda.memcpy_htod_async(
-            self.inputs[0][1],
-            self.inputs[0][0],
-            self.stream
-        )
+        # NHWC -> NCHW
+        nchw = np.transpose(img_rgb, (2, 0, 1))
 
-        # Inference
-        self.context.execute_async_v2(
-            bindings=self.bindings,
-            stream_handle=self.stream.handle
-        )
+        return np.expand_dims(nchw, 0)  # (1,3,H,W)
 
-        # D2H
-        results = {}
-        for name, host_mem, device_mem, shape in self.outputs:
-            cuda.memcpy_dtoh_async(host_mem, device_mem, self.stream)
-            results[name] = host_mem.reshape(shape)
+    # -------------------------------------------------------
+    # Inference (OpenVINO-compatible API)
+    # -------------------------------------------------------
+    def infer(self, img_320_bgr: np.ndarray) -> np.ndarray:
+        """
+        Input: (320,320,3) uint8 BGR
+        Output: (C,320,320) raw drive mask
+        """
 
+        # 1. Preprocess
+        input_tensor = self._preprocess(img_320_bgr)
+
+        # 2. Copy to device
+        np.copyto(self.host_inputs[0], input_tensor.ravel())
+        cuda.memcpy_htod_async(self.cuda_inputs[0], self.host_inputs[0], self.stream)
+
+        # 3. Execute TRT
+        self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.handle)
+
+        # 4. Copy back
+        cuda.memcpy_dtoh_async(self.host_outputs[0], self.cuda_outputs[0], self.stream)
         self.stream.synchronize()
 
-        return {
-            "drive": results.get("drive_area_seg",[]),
-            "lane": results.get("lane_line_seg",[]),
-        }
+        # 5. Reshape output (1,C,320,320)
+        output = self.host_outputs[0].reshape(self.output_shape)
 
+        # 6. Remove batch dim → (C,320,320)
+        return output[0]

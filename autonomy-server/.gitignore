@@ -5,3 +5,5 @@ key.pem
 src/data/*
 model_cache/
 kernel.errors.txt
+src/weights/yolo/*
+src/weights/yolop/*
